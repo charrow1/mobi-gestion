@@ -25,13 +25,18 @@ function AppInner() {
   const [tareasBadge, setTareasBadge] = useState(0)
 
   useEffect(() => {
-    // Cargar vendedores, proveedores y temas al inicio
     supabase.from('vendedores').select('*').order('nombre').then(({ data }) => setVendedores(data || []))
     supabase.from('proveedores').select('*').order('nombre').then(({ data }) => setProveedores(data || []))
     supabase.from('temas').select('*').order('fecha', { ascending: false }).then(({ data }) => setTemasData(data || []))
   }, [])
 
-  // Subtabs según tab activo
+  // Recargar temas cada vez que el usuario entra a la pestaña vendedores
+  useEffect(() => {
+    if (tab === 'vendedores') {
+      supabase.from('temas').select('*').order('fecha', { ascending: false }).then(({ data }) => setTemasData(data || []))
+    }
+  }, [tab])
+
   const subtabs = tab === 'locales' ? LOCALES.map(l => ({ key: l, label: l })) : []
   const activeSubtab = tab === 'locales' ? localActivo : undefined
 
