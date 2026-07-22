@@ -3,7 +3,7 @@ import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { supabase } from '../lib/supabase'
 import { LOCALES, NEGOCIOS, TIPOS_TEMA } from '../lib/constants'
-import { Btn, TagNeg, TagTipo, TagPerson, PrioDot, StatCard, EmptyState, MonthLabel, TagPicker, Checkbox } from '../components/UI'
+import { Btn, TagNeg, TagTipo, TagPerson, StatCard, EmptyState, MonthLabel, TagPicker } from '../components/UI'
 import Modal, { FormField, FormInput, FormTextarea, FormSelect, FormRow, PrioSelector } from '../components/Modal'
 import TareaCard from '../components/TareaCard'
 
@@ -20,13 +20,15 @@ function isOv(d, done) {
 }
 function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : '' }
 
-export default function LocalesPage({ localActivo, vendedores }) {
+export default function LocalesPage({ localActivo, vendedores, etiquetas }) {
+  const negocios = etiquetas?.filter(e => e.categoria === 'negocio').map(e => e.nombre) || NEGOCIOS
+  const tiposTema = etiquetas?.filter(e => e.categoria === 'tipo_tema').map(e => e.nombre) || TIPOS_TEMA
   const [temas, setTemas] = useState([])
   const [loading, setLoading] = useState(true)
   const [filtroNeg, setFiltroNeg] = useState('')
   const [filtroTipo, setFiltroTipo] = useState('')
   const [modalTema, setModalTema] = useState(false)
-  const [modalTarea, setModalTarea] = useState(null) // temaId
+  const [modalTarea, setModalTarea] = useState(null)
   const [formTema, setFormTema] = useState({ titulo: '', fecha: new Date().toISOString().slice(0, 10), notas: '', negocios: [], tipos: [], vendedor_nombre: '' })
   const [formTarea, setFormTarea] = useState({ titulo: '', prioridad: 'media', fecha_limite: '', tipo: '', comentario: '' })
 
@@ -80,20 +82,17 @@ export default function LocalesPage({ localActivo, vendedores }) {
     setTemas(prev => prev.map(t => t.id === temaId ? { ...t, tareas: t.tareas.filter(tk => tk.id !== tareaId) } : t))
   }
 
-  // Stats
   const allTareas = temas.flatMap(t => t.tareas || [])
   const venc = allTareas.filter(t => isOv(t.fecha_limite, t.done)).length
   const pend = allTareas.filter(t => !t.done).length
   const comp = allTareas.filter(t => t.done).length
 
-  // Filtros
   const allNegs = [...new Set(temas.flatMap(t => t.negocios || []))]
   const allTipos = [...new Set(temas.flatMap(t => t.tipos || []))]
   let filtered = temas
   if (filtroNeg) filtered = filtered.filter(t => (t.negocios || []).includes(filtroNeg))
   if (filtroTipo) filtered = filtered.filter(t => (t.tipos || []).includes(filtroTipo))
 
-  // Agrupar por mes
   const byMonth = {}
   filtered.forEach(t => {
     const m = capitalize(fmtMes(t.fecha))
@@ -103,7 +102,6 @@ export default function LocalesPage({ localActivo, vendedores }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-      {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: 'var(--color-surface)', borderBottom: '0.5px solid var(--color-border)', flexShrink: 0 }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 500 }}>{localActivo}</div>
@@ -112,7 +110,6 @@ export default function LocalesPage({ localActivo, vendedores }) {
         <Btn onClick={() => setModalTema(true)}>+ Nuevo tema</Btn>
       </div>
 
-      {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, padding: '10px 20px', borderBottom: '0.5px solid var(--color-border)', background: 'var(--color-surface-2)', flexShrink: 0 }}>
         <StatCard num={temas.length} label="Temas" />
         <StatCard num={venc} label="Vencidas" color={venc ? 'var(--color-danger)' : undefined} />
@@ -120,7 +117,6 @@ export default function LocalesPage({ localActivo, vendedores }) {
         <StatCard num={comp} label="Completadas" color="var(--color-success)" />
       </div>
 
-      {/* Filtros */}
       {(allNegs.length > 0 || allTipos.length > 0) && (
         <div style={{ display: 'flex', gap: 6, padding: '8px 20px', borderBottom: '0.5px solid var(--color-border)', background: 'var(--color-surface-2)', overflowX: 'auto', alignItems: 'center', flexShrink: 0 }}>
           {allNegs.length > 0 && <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>Negocio:</span>}
@@ -147,7 +143,6 @@ export default function LocalesPage({ localActivo, vendedores }) {
         </div>
       )}
 
-      {/* Timeline */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 0 }}>
         {loading ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--color-text-3)' }}>Cargando...</div>
@@ -172,7 +167,6 @@ export default function LocalesPage({ localActivo, vendedores }) {
         )}
       </div>
 
-      {/* Modal nuevo tema */}
       <Modal open={modalTema} onClose={() => setModalTema(false)} title={`Nuevo tema — ${localActivo}`}
         footer={<><Btn variant="ghost" onClick={() => setModalTema(false)}>Cancelar</Btn><Btn onClick={guardarTema}>✓ Guardar tema</Btn></>}>
         <FormField label="Título">
@@ -185,10 +179,10 @@ export default function LocalesPage({ localActivo, vendedores }) {
           <FormTextarea value={formTema.notas} onChange={e => setFormTema(f => ({ ...f, notas: e.target.value }))} rows={3} placeholder="¿Qué se habló? ¿Qué pasó?" />
         </FormField>
         <FormField label="Negocio">
-          <TagPicker options={NEGOCIOS} selected={formTema.negocios} onToggle={v => setFormTema(f => ({ ...f, negocios: f.negocios.includes(v) ? f.negocios.filter(x => x !== v) : [...f.negocios, v] }))} />
+          <TagPicker options={negocios} selected={formTema.negocios} onToggle={v => setFormTema(f => ({ ...f, negocios: f.negocios.includes(v) ? f.negocios.filter(x => x !== v) : [...f.negocios, v] }))} />
         </FormField>
         <FormField label="Tipo de tema">
-          <TagPicker options={TIPOS_TEMA} selected={formTema.tipos} onToggle={v => setFormTema(f => ({ ...f, tipos: f.tipos.includes(v) ? f.tipos.filter(x => x !== v) : [...f.tipos, v] }))} />
+          <TagPicker options={tiposTema} selected={formTema.tipos} onToggle={v => setFormTema(f => ({ ...f, tipos: f.tipos.includes(v) ? f.tipos.filter(x => x !== v) : [...f.tipos, v] }))} />
         </FormField>
         <FormField label="Vendedor involucrado (opcional)">
           <FormSelect value={formTema.vendedor_nombre} onChange={e => setFormTema(f => ({ ...f, vendedor_nombre: e.target.value }))}>
@@ -198,7 +192,6 @@ export default function LocalesPage({ localActivo, vendedores }) {
         </FormField>
       </Modal>
 
-      {/* Modal nueva tarea */}
       <Modal open={!!modalTarea} onClose={() => setModalTarea(null)} title="Nueva tarea"
         footer={<><Btn variant="ghost" onClick={() => setModalTarea(null)}>Cancelar</Btn><Btn onClick={guardarTarea}>✓ Crear tarea</Btn></>}>
         <FormField label="Título">
