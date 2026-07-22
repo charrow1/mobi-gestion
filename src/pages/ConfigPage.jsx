@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Btn, EmptyState } from '../components/UI'
+import { Btn } from '../components/UI'
 import Modal, { FormField, FormInput, FormSelect } from '../components/Modal'
 
 const CATEGORIAS = [
