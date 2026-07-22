@@ -9,6 +9,8 @@ import LocalesPage from './pages/LocalesPage'
 import VendedoresPage from './pages/VendedoresPage'
 import ProveedoresPage from './pages/ProveedoresPage'
 import TareasPage from './pages/TareasPage'
+import StockPage from './pages/StockPage'
+import ConfigPage from './pages/ConfigPage'
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth()
@@ -22,15 +24,16 @@ function AppInner() {
   const [vendedores, setVendedores] = useState([])
   const [proveedores, setProveedores] = useState([])
   const [temasData, setTemasData] = useState([])
+  const [etiquetas, setEtiquetas] = useState([])
   const [tareasBadge, setTareasBadge] = useState(0)
 
   useEffect(() => {
     supabase.from('vendedores').select('*').order('nombre').then(({ data }) => setVendedores(data || []))
     supabase.from('proveedores').select('*').order('nombre').then(({ data }) => setProveedores(data || []))
     supabase.from('temas').select('*').order('fecha', { ascending: false }).then(({ data }) => setTemasData(data || []))
+    supabase.from('etiquetas').select('*').order('orden').then(({ data }) => setEtiquetas(data || []))
   }, [])
 
-  // Recargar temas cada vez que el usuario entra a la pestaña vendedores
   useEffect(() => {
     if (tab === 'vendedores') {
       supabase.from('temas').select('*').order('fecha', { ascending: false }).then(({ data }) => setTemasData(data || []))
@@ -40,38 +43,25 @@ function AppInner() {
   const subtabs = tab === 'locales' ? LOCALES.map(l => ({ key: l, label: l })) : []
   const activeSubtab = tab === 'locales' ? localActivo : undefined
 
-  function handleTabChange(newTab) {
-    setTab(newTab)
-  }
-
-  function handleSubtabChange(key) {
-    if (tab === 'locales') setLocalActivo(key)
-  }
+  function handleTabChange(newTab) { setTab(newTab) }
+  function handleSubtabChange(key) { if (tab === 'locales') setLocalActivo(key) }
 
   return (
-    <Layout activeTab={tab} onTabChange={handleTabChange} subtabs={subtabs} activeSubtab={activeSubtab} onSubtabChange={handleSubtabChange} tareasBadge={tareasBadge}>
-      {tab === 'locales' && (
-        <LocalesPage
-          localActivo={localActivo}
-          vendedores={vendedores}
-        />
-      )}
-      {tab === 'vendedores' && (
-        <VendedoresPage
-          vendedores={vendedores}
-          setVendedores={setVendedores}
-          temasData={temasData}
-        />
-      )}
-      {tab === 'proveedores' && (
-        <ProveedoresPage
-          proveedores={proveedores}
-          setProveedores={setProveedores}
-        />
-      )}
-      {tab === 'tareas' && (
-        <TareasPage onBadgeChange={setTareasBadge} />
-      )}
+    <Layout
+      activeTab={tab}
+      onTabChange={handleTabChange}
+      subtabs={subtabs}
+      activeSubtab={activeSubtab}
+      onSubtabChange={handleSubtabChange}
+      tareasBadge={tareasBadge}
+      onConfig={() => setTab('config')}
+    >
+      {tab === 'locales' && <LocalesPage localActivo={localActivo} vendedores={vendedores} etiquetas={etiquetas} />}
+      {tab === 'vendedores' && <VendedoresPage vendedores={vendedores} setVendedores={setVendedores} temasData={temasData} />}
+      {tab === 'proveedores' && <ProveedoresPage proveedores={proveedores} setProveedores={setProveedores} />}
+      {tab === 'tareas' && <TareasPage onBadgeChange={setTareasBadge} />}
+      {tab === 'stock' && <StockPage etiquetas={etiquetas} />}
+      {tab === 'config' && <ConfigPage etiquetas={etiquetas} setEtiquetas={setEtiquetas} />}
     </Layout>
   )
 }
