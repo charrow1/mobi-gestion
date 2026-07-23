@@ -16,7 +16,7 @@ export default function Layout({ children, activeTab, onTabChange, subtabs, acti
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--color-bg)' }}>
       {/* Top nav */}
       <div style={{ background: 'var(--color-surface)', borderBottom: '0.5px solid var(--color-border)', flexShrink: 0 }}>
-        <div style={{ maxWidth: 900, margin: '0 auto', width: '100%' }}>
+        <div style={{ maxWidth: 1000, margin: '0 auto', width: '100%' }}>
           {/* Header */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 24px 0' }}>
             <div style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--color-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 15, flexShrink: 0 }}>✓</div>
