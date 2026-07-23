@@ -13,14 +13,8 @@ function fmtMes(d) { try { const s = format(parseISO(d + 'T12:00'), "MMMM yyyy",
 function isOv(d, done) { if (!d || done) return false; try { return new Date(d) < new Date(new Date().toDateString()) } catch { return false } }
 function initials(n) { return n?.split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase() || '?' }
 
-const FICHA_TABS = [
-  { key: 'hist', label: '📝 Historial de temas' },
-  { key: 'tareas', label: '📋 Tareas asignadas' },
-]
-
 export default function VendedoresPage({ vendedores, setVendedores, temasData }) {
   const [fichaId, setFichaId] = useState(null)
-  const [fichaTab, setFichaTab] = useState('tareas')
   const [modalNuevo, setModalNuevo] = useState(false)
   const [modalTarea, setModalTarea] = useState(false)
   const [form, setForm] = useState({ nombre: '', local: LOCALES[0], roles: [], notas: '' })
@@ -40,7 +34,9 @@ export default function VendedoresPage({ vendedores, setVendedores, temasData })
 
   async function guardarVendedor() {
     if (!form.nombre.trim()) return
-    const { data } = await supabase.from('vendedores').insert({ nombre: form.nombre.trim(), local: form.local, roles: form.roles, notas: form.notas.trim() }).select().single()
+    const { data } = await supabase.from('vendedores').insert({
+      nombre: form.nombre.trim(), local: form.local, roles: form.roles, notas: form.notas.trim()
+    }).select().single()
     if (data) {
       setVendedores(prev => [...prev, data])
       setModalNuevo(false)
@@ -49,13 +45,22 @@ export default function VendedoresPage({ vendedores, setVendedores, temasData })
   }
 
   async function guardarTarea() {
-    if (!formTarea.titulo.trim() || !fichaId) return
+    if (!formTarea.titulo.trim() || !fichaId || !vendedor) return
     const { data } = await supabase.from('tareas').insert({
-      vendedor_id: fichaId, titulo: formTarea.titulo.trim(), prioridad: formTarea.prioridad,
-      fecha_limite: formTarea.fecha_limite || null, tipo: formTarea.tipo || null, done: false,
+      vendedor_id: fichaId,
+      local_vendedor: vendedor.local,
+      titulo: formTarea.titulo.trim(),
+      prioridad: formTarea.prioridad,
+      fecha_limite: formTarea.fecha_limite || null,
+      tipo: formTarea.tipo || null,
+      done: false,
       comentarios: formTarea.comentario.trim() ? [{ text: formTarea.comentario.trim(), ts: new Date().toISOString() }] : []
     }).select().single()
-    if (data) { setTareas(prev => [data, ...prev]); setModalTarea(false); setFormTarea({ titulo: '', prioridad: 'media', fecha_limite: '', tipo: '', comentario: '' }) }
+    if (data) {
+      setTareas(prev => [data, ...prev])
+      setModalTarea(false)
+      setFormTarea({ titulo: '', prioridad: 'media', fecha_limite: '', tipo: '', comentario: '' })
+    }
   }
 
   async function toggleTarea(t) {
@@ -63,13 +68,36 @@ export default function VendedoresPage({ vendedores, setVendedores, temasData })
     if (data) setTareas(prev => prev.map(tk => tk.id === data.id ? data : tk))
   }
 
-  // Temas donde aparece el vendedor
   const temasVend = vendedor ? (temasData || []).filter(t => t.vendedor_nombre === vendedor.nombre) : []
+
+  const getTimeline = () => {
+    if (!vendedor) return []
+    const items = [
+      ...temasVend.map(t => ({
+        id: 'tema-' + t.id, tipo: 'tema', fecha: t.fecha,
+        titulo: t.titulo, notas: t.notas, local: t.local,
+        negocios: t.negocios || [], tipos: t.tipos || [],
+      })),
+      ...tareas.map(t => ({
+        id: 'tarea-' + t.id, tipo: 'tarea',
+        fecha: t.fecha_limite || t.created_at?.slice(0, 10), raw: t,
+      }))
+    ]
+    return items.sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
+  }
+
+  const timeline = getTimeline()
   const venc = tareas.filter(t => isOv(t.fecha_limite, t.done)).length
   const pend = tareas.filter(t => !t.done).length
   const comp = tareas.filter(t => t.done).length
 
-  // Vista lista
+  const byMonth = {}
+  timeline.forEach(item => {
+    const m = fmtMes(item.fecha)
+    if (!byMonth[m]) byMonth[m] = []
+    byMonth[m].push(item)
+  })
+
   if (!fichaId) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
@@ -85,7 +113,7 @@ export default function VendedoresPage({ vendedores, setVendedores, temasData })
               {vendedores.map(v => {
                 const tv = (temasData || []).filter(t => t.vendedor_nombre === v.nombre)
                 return (
-                  <div key={v.id} onClick={() => { setFichaId(v.id); setFichaTab('tareas') }}
+                  <div key={v.id} onClick={() => setFichaId(v.id)}
                     style={{ background: 'var(--color-surface)', border: '0.5px solid var(--color-border)', borderRadius: 12, padding: 14, cursor: 'pointer', transition: 'border-color .15s' }}
                     onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--color-border-strong)'}
                     onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--color-border)'}>
@@ -104,6 +132,7 @@ export default function VendedoresPage({ vendedores, setVendedores, temasData })
             </div>
           )}
         </div>
+
         <Modal open={modalNuevo} onClose={() => setModalNuevo(false)} title="Nuevo vendedor"
           footer={<><Btn variant="ghost" onClick={() => setModalNuevo(false)}>Cancelar</Btn><Btn onClick={guardarVendedor}>✓ Guardar</Btn></>}>
           <FormRow>
@@ -127,7 +156,6 @@ export default function VendedoresPage({ vendedores, setVendedores, temasData })
     )
   }
 
-  // Vista ficha
   return (
     <FichaLayout
       toolbar={<>
@@ -148,64 +176,45 @@ export default function VendedoresPage({ vendedores, setVendedores, temasData })
         <StatCard num={pend} label="Pendientes" />
         <StatCard num={comp} label="Completadas" color="var(--color-success)" />
       </>}
-      fichaTabsEl={<FichaTabs tabs={FICHA_TABS} active={fichaTab} onChange={setFichaTab} />}
     >
-      {fichaTab === 'hist' ? (
-        temasVend.length === 0 ? (
-          <EmptyState icon="📝" title="Sin temas relacionados" subtitle="Los temas aparecen acá cuando asignás este vendedor al crear un tema en un local." />
-        ) : (
-          Object.entries(temasVend.reduce((acc, t) => {
-            const m = fmtMes(t.fecha); if (!acc[m]) acc[m] = []; acc[m].push(t); return acc
-          }, {})).map(([mes, ts]) => (
-            <div key={mes} style={{ marginBottom: 12 }}>
-              <MonthLabel label={mes} />
-              {ts.map(t => (
-                <div key={t.id} style={{ background: 'var(--color-surface)', border: '0.5px solid var(--color-border)', borderLeft: '3px solid var(--color-accent)', borderRadius: 10, padding: '10px 12px', marginBottom: 6 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>{t.titulo}</div>
-                  <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 3 }}>📅 {fmtDate(t.fecha)} · 📍 {t.local}</div>
-                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 5 }}>
-                    {(t.negocios || []).map(n => <TagNeg key={n} label={n} />)}
-                    {(t.tipos || []).map(tp => <TagTipo key={tp} label={tp} />)}
-                  </div>
-                  {t.notas && <div style={{ fontSize: 12, color: 'var(--color-text-2)', marginTop: 7, padding: '7px 10px', background: 'var(--color-surface-2)', borderRadius: 6, lineHeight: 1.5 }}>{t.notas}</div>}
-                </div>
-              ))}
-            </div>
-          ))
-        )
+      {timeline.length === 0 ? (
+        <EmptyState icon="📋" title="Sin actividad registrada" subtitle="Los temas donde aparece y las tareas asignadas se muestran acá." />
       ) : (
-        tareas.length === 0 ? (
-          <EmptyState icon="📋" title="Sin tareas asignadas" subtitle="Creá la primera tarea con el botón +" />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            {tareas.map(t => (
-              <TareaCard key={t.id} tarea={t} onToggle={() => toggleTarea(t)}
-                onUpdate={u => setTareas(prev => prev.map(tk => tk.id === u.id ? u : tk))}
-                onDelete={id => setTareas(prev => prev.filter(tk => tk.id !== id))} />
+        Object.entries(byMonth).map(([mes, items]) => (
+          <div key={mes} style={{ marginBottom: 14 }}>
+            <MonthLabel label={mes} />
+            {items.map(item => item.tipo === 'tema' ? (
+              <div key={item.id} style={{ background: 'var(--color-surface)', border: '0.5px solid var(--color-border)', borderLeft: '3px solid var(--color-accent)', borderRadius: 10, padding: '10px 13px', marginBottom: 6 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-accent)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 3 }}>Tema</div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{item.titulo}</div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 3 }}>📅 {fmtDate(item.fecha)} · 📍 {item.local}</div>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 5 }}>
+                  {item.negocios.map(n => <TagNeg key={n} label={n} />)}
+                  {item.tipos.map(t => <TagTipo key={t} label={t} />)}
+                </div>
+                {item.notas && <div style={{ fontSize: 12, color: 'var(--color-text-2)', marginTop: 7, padding: '7px 10px', background: 'var(--color-surface-2)', borderRadius: 6, lineHeight: 1.5 }}>{item.notas}</div>}
+              </div>
+            ) : (
+              <div key={item.id} style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-warning)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 3, paddingLeft: 2 }}>Tarea</div>
+                <TareaCard tarea={item.raw} onToggle={() => toggleTarea(item.raw)}
+                  onUpdate={u => setTareas(prev => prev.map(tk => tk.id === u.id ? u : tk))}
+                  onDelete={id => setTareas(prev => prev.filter(tk => tk.id !== id))} />
+              </div>
             ))}
           </div>
-        )
+        ))
       )}
 
       <Modal open={modalTarea} onClose={() => setModalTarea(false)} title={`Nueva tarea — ${vendedor?.nombre}`}
         footer={<><Btn variant="ghost" onClick={() => setModalTarea(false)}>Cancelar</Btn><Btn onClick={guardarTarea}>✓ Crear tarea</Btn></>}>
-        <FormField label="Título">
-          <FormInput value={formTarea.titulo} onChange={e => setFormTarea(f => ({ ...f, titulo: e.target.value }))} placeholder="Describí la tarea..." autoFocus />
-        </FormField>
-        <FormField label="Prioridad">
-          <PrioSelector value={formTarea.prioridad} onChange={v => setFormTarea(f => ({ ...f, prioridad: v }))} />
-        </FormField>
+        <FormField label="Título"><FormInput value={formTarea.titulo} onChange={e => setFormTarea(f => ({ ...f, titulo: e.target.value }))} placeholder="Describí la tarea..." autoFocus /></FormField>
+        <FormField label="Prioridad"><PrioSelector value={formTarea.prioridad} onChange={v => setFormTarea(f => ({ ...f, prioridad: v }))} /></FormField>
         <FormRow>
-          <FormField label="Fecha límite" style={{ flex: 1 }}>
-            <FormInput type="date" value={formTarea.fecha_limite} onChange={e => setFormTarea(f => ({ ...f, fecha_limite: e.target.value }))} />
-          </FormField>
-          <FormField label="Tipo" style={{ flex: 1 }}>
-            <FormInput value={formTarea.tipo} onChange={e => setFormTarea(f => ({ ...f, tipo: e.target.value }))} placeholder="Ej: RRHH, Ventas..." />
-          </FormField>
+          <FormField label="Fecha límite" style={{ flex: 1 }}><FormInput type="date" value={formTarea.fecha_limite} onChange={e => setFormTarea(f => ({ ...f, fecha_limite: e.target.value }))} /></FormField>
+          <FormField label="Tipo" style={{ flex: 1 }}><FormInput value={formTarea.tipo} onChange={e => setFormTarea(f => ({ ...f, tipo: e.target.value }))} placeholder="Ej: RRHH, Ventas..." /></FormField>
         </FormRow>
-        <FormField label="Comentario (opcional)">
-          <FormTextarea value={formTarea.comentario} onChange={e => setFormTarea(f => ({ ...f, comentario: e.target.value }))} rows={2} placeholder="Notas..." />
-        </FormField>
+        <FormField label="Comentario (opcional)"><FormTextarea value={formTarea.comentario} onChange={e => setFormTarea(f => ({ ...f, comentario: e.target.value }))} rows={2} placeholder="Notas..." /></FormField>
       </Modal>
     </FichaLayout>
   )
