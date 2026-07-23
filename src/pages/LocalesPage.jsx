@@ -24,22 +24,28 @@ export default function LocalesPage({ localActivo, vendedores, etiquetas }) {
   const negocios = etiquetas?.filter(e => e.categoria === 'negocio').map(e => e.nombre) || NEGOCIOS
   const tiposTema = etiquetas?.filter(e => e.categoria === 'tipo_tema').map(e => e.nombre) || TIPOS_TEMA
   const [temas, setTemas] = useState([])
+  const [tareasVend, setTareasVend] = useState([])
   const [loading, setLoading] = useState(true)
   const [filtroNeg, setFiltroNeg] = useState('')
   const [filtroTipo, setFiltroTipo] = useState('')
+  const [mostrarTareasVend, setMostrarTareasVend] = useState(true)
   const [modalTema, setModalTema] = useState(false)
   const [modalTarea, setModalTarea] = useState(null)
   const [formTema, setFormTema] = useState({ titulo: '', fecha: new Date().toISOString().slice(0, 10), notas: '', negocios: [], tipos: [], vendedor_nombre: '' })
   const [formTarea, setFormTarea] = useState({ titulo: '', prioridad: 'media', fecha_limite: '', tipo: '', comentario: '' })
 
-  const fetchTemas = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase.from('temas').select('*, tareas(*)').eq('local', localActivo).order('fecha', { ascending: false })
-    setTemas(data || [])
+    const [{ data: temasData }, { data: tareasData }] = await Promise.all([
+      supabase.from('temas').select('*, tareas(*)').eq('local', localActivo).order('fecha', { ascending: false }),
+      supabase.from('tareas').select('*, vendedores(nombre)').eq('local_vendedor', localActivo).eq('done', false).order('fecha_limite', { ascending: true })
+    ])
+    setTemas(temasData || [])
+    setTareasVend(tareasData || [])
     setLoading(false)
   }, [localActivo])
 
-  useEffect(() => { fetchTemas() }, [fetchTemas])
+  useEffect(() => { fetchData() }, [fetchData])
 
   async function guardarTema() {
     if (!formTema.titulo.trim()) return
@@ -74,6 +80,11 @@ export default function LocalesPage({ localActivo, vendedores, etiquetas }) {
     if (data) setTemas(prev => prev.map(t => t.id === temaId ? { ...t, tareas: t.tareas.map(tk => tk.id === data.id ? data : tk) } : t))
   }
 
+  async function toggleTareaVend(tarea) {
+    const { data } = await supabase.from('tareas').update({ done: true }).eq('id', tarea.id).select().single()
+    if (data) setTareasVend(prev => prev.filter(t => t.id !== tarea.id))
+  }
+
   function updateTarea(temaId, updated) {
     setTemas(prev => prev.map(t => t.id === temaId ? { ...t, tareas: t.tareas.map(tk => tk.id === updated.id ? updated : tk) } : t))
   }
@@ -93,73 +104,93 @@ export default function LocalesPage({ localActivo, vendedores, etiquetas }) {
   if (filtroNeg) filtered = filtered.filter(t => (t.negocios || []).includes(filtroNeg))
   if (filtroTipo) filtered = filtered.filter(t => (t.tipos || []).includes(filtroTipo))
 
-  const byMonth = {}
-  filtered.forEach(t => {
-    const m = capitalize(fmtMes(t.fecha))
-    if (!byMonth[m]) byMonth[m] = []
-    byMonth[m].push(t)
-  })
+  // Construir línea de tiempo mezclando temas y tareas de vendedores
+  const buildTimeline = () => {
+    const items = [
+      ...filtered.map(t => ({ tipo: 'tema', fecha: t.fecha, data: t })),
+      ...(mostrarTareasVend ? tareasVend.map(t => ({ tipo: 'tarea_vend', fecha: t.fecha_limite || t.created_at?.slice(0, 10), data: t })) : [])
+    ]
+    items.sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
+    const byMonth = {}
+    items.forEach(item => {
+      const m = capitalize(fmtMes(item.fecha))
+      if (!byMonth[m]) byMonth[m] = []
+      byMonth[m].push(item)
+    })
+    return byMonth
+  }
+
+  const timeline = buildTimeline()
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: 'var(--color-surface)', borderBottom: '0.5px solid var(--color-border)', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 24px', background: 'var(--color-surface)', borderBottom: '0.5px solid var(--color-border)', flexShrink: 0 }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 500 }}>{localActivo}</div>
-          <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{temas.length} temas · {pend} pendientes{venc ? ` · ⚠ ${venc} vencidas` : ''}</div>
+          <div style={{ fontSize: 15, fontWeight: 500 }}>{localActivo}</div>
+          <div style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{temas.length} temas · {pend} pendientes{venc ? ` · ⚠ ${venc} vencidas` : ''}</div>
         </div>
         <Btn onClick={() => setModalTema(true)}>+ Nuevo tema</Btn>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, padding: '10px 20px', borderBottom: '0.5px solid var(--color-border)', background: 'var(--color-surface-2)', flexShrink: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, padding: '10px 24px', borderBottom: '0.5px solid var(--color-border)', background: 'var(--color-surface-2)', flexShrink: 0 }}>
         <StatCard num={temas.length} label="Temas" />
         <StatCard num={venc} label="Vencidas" color={venc ? 'var(--color-danger)' : undefined} />
         <StatCard num={pend} label="Pendientes" />
         <StatCard num={comp} label="Completadas" color="var(--color-success)" />
       </div>
 
-      {(allNegs.length > 0 || allTipos.length > 0) && (
-        <div style={{ display: 'flex', gap: 6, padding: '8px 20px', borderBottom: '0.5px solid var(--color-border)', background: 'var(--color-surface-2)', overflowX: 'auto', alignItems: 'center', flexShrink: 0 }}>
-          {allNegs.length > 0 && <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>Negocio:</span>}
+      {(allNegs.length > 0 || allTipos.length > 0 || tareasVend.length > 0) && (
+        <div style={{ display: 'flex', gap: 6, padding: '8px 24px', borderBottom: '0.5px solid var(--color-border)', background: 'var(--color-surface-2)', overflowX: 'auto', alignItems: 'center', flexShrink: 0 }}>
+          {allNegs.length > 0 && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>Negocio:</span>}
           {allNegs.map(n => (
             <button key={n} onClick={() => setFiltroNeg(filtroNeg === n ? '' : n)}
-              style={{ padding: '3px 10px', borderRadius: 20, border: `0.5px solid ${filtroNeg === n ? 'var(--color-accent-border)' : 'var(--color-border)'}`, fontSize: 11, cursor: 'pointer', background: filtroNeg === n ? 'var(--color-accent-bg)' : 'var(--color-surface-2)', color: filtroNeg === n ? 'var(--color-accent)' : 'var(--color-text-2)', fontWeight: filtroNeg === n ? 500 : 400, whiteSpace: 'nowrap' }}>
+              style={{ padding: '3px 10px', borderRadius: 20, border: `0.5px solid ${filtroNeg === n ? 'var(--color-accent-border)' : 'var(--color-border)'}`, fontSize: 12, cursor: 'pointer', background: filtroNeg === n ? 'var(--color-accent-bg)' : 'var(--color-surface-2)', color: filtroNeg === n ? 'var(--color-accent)' : 'var(--color-text-2)', fontWeight: filtroNeg === n ? 500 : 400, whiteSpace: 'nowrap' }}>
               {n}
             </button>
           ))}
           {allNegs.length > 0 && allTipos.length > 0 && <div style={{ width: '0.5px', background: 'var(--color-border)', alignSelf: 'stretch', flexShrink: 0 }} />}
-          {allTipos.length > 0 && <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>Tipo:</span>}
+          {allTipos.length > 0 && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>Tipo:</span>}
           {allTipos.map(tp => (
             <button key={tp} onClick={() => setFiltroTipo(filtroTipo === tp ? '' : tp)}
-              style={{ padding: '3px 10px', borderRadius: 20, border: `0.5px solid ${filtroTipo === tp ? 'var(--color-accent-border)' : 'var(--color-border)'}`, fontSize: 11, cursor: 'pointer', background: filtroTipo === tp ? 'var(--color-accent-bg)' : 'var(--color-surface-2)', color: filtroTipo === tp ? 'var(--color-accent)' : 'var(--color-text-2)', fontWeight: filtroTipo === tp ? 500 : 400, whiteSpace: 'nowrap' }}>
+              style={{ padding: '3px 10px', borderRadius: 20, border: `0.5px solid ${filtroTipo === tp ? 'var(--color-accent-border)' : 'var(--color-border)'}`, fontSize: 12, cursor: 'pointer', background: filtroTipo === tp ? 'var(--color-accent-bg)' : 'var(--color-surface-2)', color: filtroTipo === tp ? 'var(--color-accent)' : 'var(--color-text-2)', fontWeight: filtroTipo === tp ? 500 : 400, whiteSpace: 'nowrap' }}>
               {tp}
             </button>
           ))}
           {(filtroNeg || filtroTipo) && (
             <button onClick={() => { setFiltroNeg(''); setFiltroTipo('') }}
-              style={{ padding: '3px 10px', borderRadius: 20, border: '0.5px solid var(--color-accent-border)', fontSize: 11, cursor: 'pointer', background: 'var(--color-accent-bg)', color: 'var(--color-accent)', fontWeight: 500, whiteSpace: 'nowrap' }}>
+              style={{ padding: '3px 10px', borderRadius: 20, border: '0.5px solid var(--color-accent-border)', fontSize: 12, cursor: 'pointer', background: 'var(--color-accent-bg)', color: 'var(--color-accent)', fontWeight: 500, whiteSpace: 'nowrap' }}>
               ✕ Limpiar
             </button>
           )}
+          {tareasVend.length > 0 && <>
+            <div style={{ width: '0.5px', background: 'var(--color-border)', alignSelf: 'stretch', flexShrink: 0 }} />
+            <button onClick={() => setMostrarTareasVend(s => !s)}
+              style={{ padding: '3px 10px', borderRadius: 20, border: `0.5px solid ${mostrarTareasVend ? '#d8b4fe' : 'var(--color-border)'}`, fontSize: 12, cursor: 'pointer', background: mostrarTareasVend ? '#f3e8ff' : 'var(--color-surface-2)', color: mostrarTareasVend ? '#7e22ce' : 'var(--color-text-2)', fontWeight: mostrarTareasVend ? 500 : 400, whiteSpace: 'nowrap' }}>
+              👤 Tareas de vendedores {mostrarTareasVend ? '✓' : ''}
+            </button>
+          </>}
         </div>
       )}
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 0 }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 0 }}>
         {loading ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--color-text-3)' }}>Cargando...</div>
-        ) : filtered.length === 0 ? (
+        ) : Object.keys(timeline).length === 0 ? (
           <EmptyState icon="📝" title={temas.length ? 'Sin resultados para ese filtro' : 'Sin temas registrados'} subtitle="Creá el primer tema con el botón +" />
         ) : (
-          Object.entries(byMonth).map(([mes, ts]) => (
+          Object.entries(timeline).map(([mes, items]) => (
             <div key={mes} style={{ marginBottom: 16 }}>
               <MonthLabel label={mes} />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {ts.map(tema => (
-                  <TemaEntry key={tema.id} tema={tema}
-                    onAgregarTarea={() => setModalTarea(tema.id)}
-                    onToggleTarea={(t) => toggleTarea(tema.id, t)}
-                    onUpdateTarea={(u) => updateTarea(tema.id, u)}
-                    onDeleteTarea={(id) => deleteTarea(tema.id, id)}
+                {items.map((item, i) => item.tipo === 'tema' ? (
+                  <TemaEntry key={item.data.id} tema={item.data}
+                    onAgregarTarea={() => setModalTarea(item.data.id)}
+                    onToggleTarea={(t) => toggleTarea(item.data.id, t)}
+                    onUpdateTarea={(u) => updateTarea(item.data.id, u)}
+                    onDeleteTarea={(id) => deleteTarea(item.data.id, id)}
                   />
+                ) : (
+                  <TareaVendEntry key={item.data.id} tarea={item.data} onToggle={() => toggleTareaVend(item.data)} />
                 ))}
               </div>
             </div>
@@ -226,13 +257,13 @@ function TemaEntry({ tema, onAgregarTarea, onToggleTarea, onUpdateTarea, onDelet
   return (
     <div style={{ background: 'var(--color-surface)', border: '0.5px solid var(--color-border)', borderLeft: '3px solid var(--color-accent)', borderRadius: 10, padding: '11px 13px' }}>
       <div style={{ display: 'flex', gap: 8 }}>
-        <div style={{ width: 26, height: 26, minWidth: 26, borderRadius: 7, background: 'var(--color-accent-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0 }}>📝</div>
+        <div style={{ width: 26, height: 26, minWidth: 26, borderRadius: 7, background: 'var(--color-accent-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>📝</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text)' }}>{tema.titulo}</div>
-            {sl && <div style={{ fontSize: 11, color: sc, fontWeight: 500, whiteSpace: 'nowrap' }}>{sl}</div>}
+            <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text)' }}>{tema.titulo}</div>
+            {sl && <div style={{ fontSize: 12, color: sc, fontWeight: 500, whiteSpace: 'nowrap' }}>{sl}</div>}
           </div>
-          <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 3 }}>📅 {fmtDate(tema.fecha)}</div>
+          <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 3 }}>📅 {fmtDate(tema.fecha)}</div>
           {(tema.negocios?.length > 0 || tema.tipos?.length > 0 || tema.vendedor_nombre) && (
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
               {(tema.negocios || []).map(n => <TagNeg key={n} label={n} />)}
@@ -241,7 +272,7 @@ function TemaEntry({ tema, onAgregarTarea, onToggleTarea, onUpdateTarea, onDelet
             </div>
           )}
           {tema.notas && (
-            <div style={{ fontSize: 12, color: 'var(--color-text-2)', background: 'var(--color-surface-2)', borderRadius: 6, padding: '8px 10px', marginTop: 8, lineHeight: 1.5, border: '0.5px solid var(--color-border)' }}>
+            <div style={{ fontSize: 13, color: 'var(--color-text-2)', background: 'var(--color-surface-2)', borderRadius: 6, padding: '8px 10px', marginTop: 8, lineHeight: 1.6, border: '0.5px solid var(--color-border)' }}>
               {tema.notas}
             </div>
           )}
@@ -253,11 +284,36 @@ function TemaEntry({ tema, onAgregarTarea, onToggleTarea, onUpdateTarea, onDelet
             </div>
           )}
           <button onClick={onAgregarTarea}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--color-accent)', cursor: 'pointer', marginTop: 8, padding: '3px 6px', borderRadius: 5, background: 'none', border: 'none' }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--color-accent)', cursor: 'pointer', marginTop: 8, padding: '3px 6px', borderRadius: 5, background: 'none', border: 'none' }}
             onMouseEnter={e => e.target.style.background = 'var(--color-accent-bg)'}
             onMouseLeave={e => e.target.style.background = 'none'}>
             + Agregar tarea
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TareaVendEntry({ tarea, onToggle }) {
+  const ov = isOv(tarea.fecha_limite, tarea.done)
+  const vendNombre = tarea.vendedores?.nombre || '—'
+  return (
+    <div style={{ background: 'var(--color-surface)', border: '0.5px solid #e9d5ff', borderLeft: '3px solid #9333ea', borderRadius: 10, padding: '10px 13px' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#9333ea', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Tarea de vendedor</div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <div onClick={onToggle}
+          style={{ width: 16, height: 16, minWidth: 16, borderRadius: 4, border: '1.5px solid #c4b5fd', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 2, flexShrink: 0 }}>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: tarea.prioridad === 'alta' ? '#E24B4A' : tarea.prioridad === 'baja' ? '#639922' : '#EF9F27', display: 'inline-block', flexShrink: 0 }} />
+            {tarea.titulo}
+          </div>
+          <div style={{ fontSize: 12, color: ov ? 'var(--color-danger)' : 'var(--color-text-3)', marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            {tarea.fecha_limite && <span>{ov ? '⚠ Vencida · ' : '📅 '}{fmtDate(tarea.fecha_limite)}</span>}
+            <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, padding: '1px 7px', borderRadius: 20, background: '#f3e8ff', color: '#7e22ce', border: '0.5px solid #d8b4fe', fontWeight: 500 }}>👤 {vendNombre}</span>
+          </div>
         </div>
       </div>
     </div>
